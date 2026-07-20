@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Receipt Sender Admin</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <section class="panel admin-panel">
+        <div class="panel-header">
+          <p class="eyebrow">Admin Console</p>
+          <h1>Receipt Sender</h1>
+          <p class="lede">
+            Fill in the transaction details, preview the receipt, and send it to the recipient by email.
+          </p>
+        </div>
+
+        <form id="receipt-form" class="receipt-form">
+          <div class="grid two-up">
+            <label>
+              <span>Recipient Name</span>
+              <input name="recipientName" value="Alex Morgan" required />
+            </label>
+            <label>
+              <span>Recipient Email</span>
+              <input name="recipientEmail" type="email" placeholder="name@example.com" required />
+            </label>
+          </div>
+
+          <div class="grid two-up">
+            <label>
+              <span>Organization</span>
+              <input name="organizationName" placeholder="Optional organization name" />
+            </label>
+            <label>
+              <span>Email Subject</span>
+              <input name="subject" value="Transaction Confirmation" required />
+            </label>
+          </div>
+
+          <div class="grid three-up">
+            <label>
+              <span>Amount</span>
+              <input name="amount" type="number" min="0" step="0.01" value="20000.00" required />
+            </label>
+            <label>
+              <span>Currency</span>
+              <input name="currency" value="USD" maxlength="3" required />
+            </label>
+            <label>
+              <span>Status</span>
+              <select name="status">
+                <option>Completed</option>
+                <option>Pending</option>
+                <option>Processing</option>
+                <option>Failed</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="grid three-up">
+            <label>
+              <span>Transaction Type</span>
+              <input name="transactionType" value="External Transfer" required />
+            </label>
+            <label>
+              <span>Reference</span>
+              <input name="reference" value="REF-2026-00154" />
+            </label>
+            <label>
+              <span>Date</span>
+              <input name="transactionDate" type="date" required />
+            </label>
+          </div>
+
+          <div class="grid two-up">
+            <label>
+              <span>From</span>
+              <input name="senderName" value="Treasury Operations" />
+            </label>
+            <label>
+              <span>Source Account</span>
+              <input name="senderAccount" value="Acct: 9989001622" />
+            </label>
+          </div>
+
+          <div class="grid two-up">
+            <label>
+              <span>Accent Color</span>
+              <input name="accentColor" type="color" value="#7c9cff" />
+            </label>
+            <label>
+              <span>Notes</span>
+              <input name="note" value="Funds are now available in your account." />
+            </label>
+          </div>
+
+          <div class="actions">
+            <button type="submit" id="send-button">Send Receipt</button>
+            <p id="status-message" class="status-message" aria-live="polite"></p>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel preview-panel">
+        <div class="phone-frame">
+          <div class="email-card">
+            <div class="preview-badge" id="preview-org">Navy Federal Reserve System </div>
+            <img class="preview-logo" src=" /nvlogo.png" alt="${escapeHtml(data.organizationName)}"
+  style="width: 140px; max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius: 16px; background: #ffffff; padding: 12px;"
+/>
+<h1 class="title">Transaction Confirmation</h1>
+<p class="copy">You received a new completed transaction on your account.</p>
+<h2 class="preview-title">Transaction Confirmation</h2>
+<p class="preview-copy">You received a new completed transaction on your account.</p>
+            <div class="receipt-block">
+              <p class="section-label">From</p>
+              <p class="section-value" id="preview-from">Treasury Operations</p>
+              <p class="section-subvalue" id="preview-account">Acct: 9989001622</p>
+            </div>
+            <strong class="hero-amount" id="preview-amount">$20,000.00</strong>
+            <p class="hero-meta" id="preview-meta">External Transfer • Completed</p>
+            <div class="receipt-block compact">
+              <p class="section-label">Transaction Date</p>
+              <p class="section-value" id="preview-date">2026-07-20</p>
+            </div>
+            <dl class="details-list">
+              <div>
+                <dt>Recipient</dt>
+                <dd id="preview-recipient">Alex Morgan</dd>
+              </div>
+              <div>
+                <dt>Email</dt>
+                <dd id="preview-email">name@example.com</dd>
+              </div>
+              <div>
+                <dt>Reference</dt>
+                <dd id="preview-reference">REF-2026-00154</dd>
+              </div>
+            </dl>
+            <p class="preview-note" id="preview-note">Funds are now available in your account.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
