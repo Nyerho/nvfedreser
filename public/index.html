@@ -7,145 +7,277 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="shell">
-      <section class="panel admin-panel">
-        <div class="panel-header">
-          <p class="eyebrow">Admin Console</p>
-          <h1>Receipt Sender</h1>
-          <p class="lede">
-            Fill in the transaction details, preview the receipt, and send it to the recipient by email.
+    <div id="security-modal" class="security-modal" aria-hidden="true">
+      <div class="security-dialog">
+        <p class="auth-eyebrow">Security Check</p>
+        <h2 class="security-title">Authorized Admin Access Only</h2>
+        <p class="security-copy">
+          Sign in with a Firebase account that is also approved in Firestore. Only admins listed in the
+          `adminUsers` collection can unlock this dashboard.
+        </p>
+        <form id="auth-form" class="auth-form modal-auth-form">
+          <div class="grid two-up">
+            <label>
+              <span>Admin Email</span>
+              <input name="email" type="email" placeholder="admin@example.com" required />
+            </label>
+            <label>
+              <span>Password</span>
+              <input name="password" type="password" placeholder="Enter password" required />
+            </label>
+          </div>
+          <div class="actions auth-actions">
+            <button type="submit" id="login-button">Sign In</button>
+          </div>
+          <p id="auth-status" class="status-message" aria-live="polite">Checking session...</p>
+          <p id="auth-user" class="auth-user">Not signed in</p>
+          <p id="security-detail" class="security-detail">
+            Firestore rule: create `adminUsers/{uid}` with `active: true` and an optional `role`.
           </p>
-        </div>
-
-        <form id="receipt-form" class="receipt-form">
-          <div class="grid two-up">
-            <label>
-              <span>Recipient Name</span>
-              <input name="recipientName" value="Alex Morgan" required />
-            </label>
-            <label>
-              <span>Recipient Email</span>
-              <input name="recipientEmail" type="email" placeholder="name@example.com" required />
-            </label>
-          </div>
-
-          <div class="grid two-up">
-            <label>
-              <span>Organization</span>
-              <input name="organizationName" placeholder="Optional organization name" />
-            </label>
-            <label>
-              <span>Email Subject</span>
-              <input name="subject" value="Transaction Confirmation" required />
-            </label>
-          </div>
-
-          <div class="grid three-up">
-            <label>
-              <span>Amount</span>
-              <input name="amount" type="number" min="0" step="0.01" value="20000.00" required />
-            </label>
-            <label>
-              <span>Currency</span>
-              <input name="currency" value="USD" maxlength="3" required />
-            </label>
-            <label>
-              <span>Status</span>
-              <select name="status">
-                <option>Completed</option>
-                <option>Pending</option>
-                <option>Processing</option>
-                <option>Failed</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="grid three-up">
-            <label>
-              <span>Transaction Type</span>
-              <input name="transactionType" value="External Transfer" required />
-            </label>
-            <label>
-              <span>Reference</span>
-              <input name="reference" value="REF-2026-00154" />
-            </label>
-            <label>
-              <span>Date</span>
-              <input name="transactionDate" type="date" required />
-            </label>
-          </div>
-
-          <div class="grid two-up">
-            <label>
-              <span>From</span>
-              <input name="senderName" value="Treasury Operations" />
-            </label>
-            <label>
-              <span>Source Account</span>
-              <input name="senderAccount" value="Acct: 9989001622" />
-            </label>
-          </div>
-
-          <div class="grid two-up">
-            <label>
-              <span>Accent Color</span>
-              <input name="accentColor" type="color" value="#7c9cff" />
-            </label>
-            <label>
-              <span>Notes</span>
-              <input name="note" value="Funds are now available in your account." />
-            </label>
-          </div>
-
-          <div class="actions">
-            <button type="submit" id="send-button">Send Receipt</button>
-            <p id="status-message" class="status-message" aria-live="polite"></p>
-          </div>
         </form>
-      </section>
-
-      <section class="panel preview-panel">
-        <div class="phone-frame">
-          <div class="email-card">
-            <div class="preview-badge" id="preview-org">Navy Federal Reserve System </div>
-            <img class="preview-logo" src=" /nvlogo.png" alt="${escapeHtml(data.organizationName)}"
-  style="width: 140px; max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius: 16px; background: #ffffff; padding: 12px;"
-/>
-<h1 class="title">Transaction Confirmation</h1>
-<p class="copy">You received a new completed transaction on your account.</p>
-<h2 class="preview-title">Transaction Confirmation</h2>
-<p class="preview-copy">You received a new completed transaction on your account.</p>
-            <div class="receipt-block">
-              <p class="section-label">From</p>
-              <p class="section-value" id="preview-from">Treasury Operations</p>
-              <p class="section-subvalue" id="preview-account">Acct: 9989001622</p>
-            </div>
-            <strong class="hero-amount" id="preview-amount">$20,000.00</strong>
-            <p class="hero-meta" id="preview-meta">External Transfer • Completed</p>
-            <div class="receipt-block compact">
-              <p class="section-label">Transaction Date</p>
-              <p class="section-value" id="preview-date">2026-07-20</p>
-            </div>
-            <dl class="details-list">
-              <div>
-                <dt>Recipient</dt>
-                <dd id="preview-recipient">Alex Morgan</dd>
-              </div>
-              <div>
-                <dt>Email</dt>
-                <dd id="preview-email">name@example.com</dd>
-              </div>
-              <div>
-                <dt>Reference</dt>
-                <dd id="preview-reference">REF-2026-00154</dd>
-              </div>
-            </dl>
-            <p class="preview-note" id="preview-note">Funds are now available in your account.</p>
-          </div>
-        </div>
-      </section>
+      </div>
     </div>
 
-    <script src="/app.js"></script>
+    <div class="shell">
+      <aside class="sidebar panel">
+        <div class="sidebar-brand">
+          <div class="brand-mark">RS</div>
+          <div>
+            <p class="eyebrow">Control Center</p>
+            <h1 class="sidebar-title">Receipt Sender</h1>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav">
+          <a class="nav-item active" href="#hero-card">Overview</a>
+          <a class="nav-item" href="#receipt-form">Receipt Builder</a>
+          <a class="nav-item" href="#history-card">History</a>
+          <a class="nav-item" href="#preview-panel">Preview</a>
+        </nav>
+
+        <section class="sidebar-card">
+          <p class="auth-eyebrow">Security</p>
+          <h2 class="auth-title">Admin Access</h2>
+          <p class="auth-copy">Only Firebase users approved in Firestore can unlock this dashboard.</p>
+          <div class="actions auth-actions sidebar-actions">
+            <button type="button" id="open-security-button" class="ghost-button">Open Security Check</button>
+            <button type="button" id="logout-button" class="ghost-button">Sign Out</button>
+          </div>
+          <p class="auth-user">Use the access panel to monitor current authorization.</p>
+        </section>
+
+        <section class="sidebar-card sidebar-help">
+          <p class="auth-eyebrow">Workflow</p>
+          <ul class="sidebar-list">
+            <li>Pass the security check</li>
+            <li>Fill in transaction details</li>
+            <li>Review the live receipt preview</li>
+            <li>Send and log the receipt to Firestore</li>
+          </ul>
+        </section>
+      </aside>
+
+      <main class="dashboard">
+        <section class="hero-card panel" id="hero-card">
+          <div class="hero-copy">
+            <p class="eyebrow">Admin Dashboard</p>
+            <h2 class="hero-title">Create polished transaction receipts from one secure workspace.</h2>
+            <p class="lede">
+              Manage admin verification, build receipts, review the mobile-style preview, and keep a live log
+              of sent records in Firestore.
+            </p>
+            <div class="hero-actions">
+              <a class="hero-link primary" href="#receipt-form">Build Receipt</a>
+              <a class="hero-link secondary" href="#history-card">View Activity</a>
+            </div>
+          </div>
+          <div class="hero-stats">
+            <article class="metric-card">
+              <span class="metric-label">Access</span>
+              <strong class="metric-value">Firestore Guarded</strong>
+              <small class="metric-copy">Only approved admin records unlock the workspace.</small>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">Preview</span>
+              <strong class="metric-value">Live Sync</strong>
+              <small class="metric-copy">Every form change updates the receipt view instantly.</small>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">Logging</span>
+              <strong class="metric-value">Auto Saved</strong>
+              <small class="metric-copy">Successful sends are written to Firestore receipt history.</small>
+            </article>
+          </div>
+        </section>
+
+        <section class="dashboard-grid">
+          <div class="main-column">
+            <section class="form-card panel">
+              <div class="panel-header">
+                <p class="eyebrow">Receipt Builder</p>
+                <h2 class="section-title">Transaction Details</h2>
+                <p class="lede">
+                  Fill in the transaction details, preview the receipt, and send it to the recipient by email.
+                </p>
+              </div>
+
+              <form id="receipt-form" class="receipt-form">
+                <div class="grid two-up">
+                  <label>
+                    <span>Recipient Name</span>
+                    <input name="recipientName" value="Alex Morgan" required />
+                  </label>
+                  <label>
+                    <span>Recipient Email</span>
+                    <input name="recipientEmail" type="email" placeholder="name@example.com" required />
+                  </label>
+                </div>
+
+                <div class="grid two-up">
+                  <label>
+                    <span>Organization</span>
+                    <input name="organizationName" placeholder="Optional organization name" />
+                  </label>
+                  <label>
+                    <span>Email Subject</span>
+                    <input name="subject" value="Transaction Confirmation" required />
+                  </label>
+                </div>
+
+                <div class="grid three-up">
+                  <label>
+                    <span>Amount</span>
+                    <input name="amount" type="number" min="0" step="0.01" value="20000.00" required />
+                  </label>
+                  <label>
+                    <span>Currency</span>
+                    <input name="currency" value="USD" maxlength="3" required />
+                  </label>
+                  <label>
+                    <span>Status</span>
+                    <select name="status">
+                      <option>Completed</option>
+                      <option>Pending</option>
+                      <option>Processing</option>
+                      <option>Failed</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div class="grid three-up">
+                  <label>
+                    <span>Transaction Type</span>
+                    <input name="transactionType" value="External Transfer" required />
+                  </label>
+                  <label>
+                    <span>Reference</span>
+                    <input name="reference" value="REF-2026-00154" />
+                  </label>
+                  <label>
+                    <span>Date</span>
+                    <input name="transactionDate" type="date" required />
+                  </label>
+                </div>
+
+                <div class="grid two-up">
+                  <label>
+                    <span>From</span>
+                    <input name="senderName" value="Treasury Operations" />
+                  </label>
+                  <label>
+                    <span>Source Account</span>
+                    <input name="senderAccount" value="Acct: 9989001622" />
+                  </label>
+                </div>
+
+                <div class="grid two-up">
+                  <label>
+                    <span>Accent Color</span>
+                    <input name="accentColor" type="color" value="#7c9cff" />
+                  </label>
+                  <label>
+                    <span>Notes</span>
+                    <input name="note" value="Funds are now available in your account." />
+                  </label>
+                </div>
+
+                <div class="actions">
+                  <button type="submit" id="send-button">Send Receipt</button>
+                  <p id="status-message" class="status-message" aria-live="polite"></p>
+                </div>
+              </form>
+            </section>
+
+            <section class="history-card panel" id="history-card">
+              <div class="history-header">
+                <div>
+                  <p class="auth-eyebrow">Firestore</p>
+                  <h2 class="auth-title">Recent Receipts</h2>
+                </div>
+                <p class="history-copy">Shows the latest saved receipt records from your `receipts` collection.</p>
+              </div>
+              <div id="history-empty" class="history-empty">Sign in to load recent receipt activity.</div>
+              <ul id="history-list" class="history-list"></ul>
+            </section>
+          </div>
+
+          <div class="side-column">
+            <section class="auth-card panel">
+              <div>
+                <p class="auth-eyebrow">Firebase Admin</p>
+                <h2 class="auth-title">Access Status</h2>
+                <p class="auth-copy">
+                  Use the security check to confirm the signed-in account is approved in Firestore before sending.
+                </p>
+              </div>
+              <p id="access-summary" class="auth-user">Dashboard locked</p>
+            </section>
+
+            <section class="panel preview-panel" id="preview-panel">
+              <div class="preview-header">
+                <p class="eyebrow">Live Preview</p>
+                <h2 class="section-title">Receipt Preview</h2>
+              </div>
+              <div class="phone-frame">
+                <div class="email-card">
+                  <div class="preview-badge" id="preview-org"></div>
+                  <img class="preview-logo" src="/nvlogo.png" alt="Brand Logo" />
+                  <h2 class="preview-title">Transaction Confirmation</h2>
+                  <p class="preview-copy">You received a new completed transaction on your account.</p>
+                  <div class="receipt-block">
+                    <p class="section-label">From</p>
+                    <p class="section-value" id="preview-from">Treasury Operations</p>
+                    <p class="section-subvalue" id="preview-account">Acct: 9989001622</p>
+                  </div>
+                  <strong class="hero-amount" id="preview-amount">$20,000.00</strong>
+                  <p class="hero-meta" id="preview-meta">External Transfer • Completed</p>
+                  <div class="receipt-block compact">
+                    <p class="section-label">Transaction Date</p>
+                    <p class="section-value" id="preview-date">2026-07-20</p>
+                  </div>
+                  <dl class="details-list">
+                    <div>
+                      <dt>Recipient</dt>
+                      <dd id="preview-recipient">Alex Morgan</dd>
+                    </div>
+                    <div>
+                      <dt>Email</dt>
+                      <dd id="preview-email">name@example.com</dd>
+                    </div>
+                    <div>
+                      <dt>Reference</dt>
+                      <dd id="preview-reference">REF-2026-00154</dd>
+                    </div>
+                  </dl>
+                  <p class="preview-note" id="preview-note">Funds are now available in your account.</p>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/app.js"></script>
   </body>
 </html>
