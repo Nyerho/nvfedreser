@@ -118,10 +118,19 @@ function formatReceiptDate(value) {
 function formatFirestoreAccessError(error, fallback) {
   const message = String(error?.message || "");
   if (error?.code === "permission-denied" || /missing or insufficient permissions/i.test(message)) {
-    return "Firestore blocked access. Publish the updated rules, then create adminUsers/{uid} with active: true for this account.";
+    const uidHint = auth.currentUser?.uid ? ` Current UID: ${auth.currentUser.uid}.` : "";
+    return `Firestore blocked access. Publish the updated rules, then make sure adminUsers/{uid} exists with active: true.${uidHint}`;
   }
 
   return message || fallback;
+}
+
+function buildAdminDocHint(user) {
+  if (!user?.uid) {
+    return "Firestore rule: create adminUsers/{uid} with active: true and an optional role.";
+  }
+
+  return `Firestore rule: create adminUsers/${user.uid} with active: true and an optional role.`;
 }
 
 function renderReceiptHistory(receipts) {
@@ -225,13 +234,12 @@ async function handleLogout() {
 async function evaluateAdminAccess(user) {
   if (!user) {
     authUser.textContent = "Not signed in";
-    securityDetail.textContent =
-      "Firestore rule: create adminUsers/{uid} with active: true and an optional role.";
+    securityDetail.textContent = buildAdminDocHint(user);
     setUnauthorizedState("Sign in to continue.");
     return;
   }
 
-  authUser.textContent = `Signed in as ${user.email}`;
+  authUser.textContent = `Signed in as ${user.email} (${user.uid})`;
   authStatus.textContent = "Checking Firestore admin approval...";
 
   try {
@@ -252,7 +260,7 @@ async function evaluateAdminAccess(user) {
     startHistoryWatch();
   } catch (error) {
     const message = formatFirestoreAccessError(error, "Unable to check admin approval.");
-    securityDetail.textContent = message;
+    securityDetail.textContent = `${message} ${buildAdminDocHint(user)}`;
     setUnauthorizedState(message);
   }
 }

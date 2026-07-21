@@ -68,7 +68,7 @@ async function getAuthorizedAdminRecord(user) {
   }
 
   const directDoc = await getDoc(doc(db, "adminUsers", user.uid));
-  if (directDoc.exists() && directDoc.data().active !== false) {
+  if (directDoc.exists() && directDoc.data().active === true) {
     return {
       allowed: true,
       source: "uid",
@@ -80,7 +80,7 @@ async function getAuthorizedAdminRecord(user) {
   return {
     allowed: false,
     reason:
-      "This signed-in account is not approved in Firestore. Add an adminUsers/{uid} document with active: true.",
+      "This signed-in account is not approved in Firestore. Add or update adminUsers/{uid} so it includes active: true.",
   };
 }
 
