@@ -10,6 +10,16 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
+function maskEmail(value) {
+  const email = String(value || "");
+  const atIndex = email.indexOf("@");
+  if (atIndex <= 1) {
+    return email ? "***" : "";
+  }
+
+  return `${email.slice(0, 2)}***${email.slice(atIndex)}`;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -300,6 +310,26 @@ function createTransporter() {
     },
   });
 }
+
+app.get("/api/health", (req, res) => {
+  const host = process.env.SMTP_HOST || "";
+  const port = process.env.SMTP_PORT || "";
+  const secure = process.env.SMTP_SECURE === "true";
+  const user = process.env.SMTP_USER || "";
+  const from = process.env.MAIL_FROM || "";
+
+  res.json({
+    ok: true,
+    smtp: {
+      configured: Boolean(host && port && user && process.env.SMTP_PASS),
+      host,
+      port,
+      secure,
+      user: maskEmail(user),
+      from: from ? from.replace(/<([^>]+)>/, "<***@***>") : "",
+    },
+  });
+});
 
 app.post("/api/send-receipt", async (req, res) => {
   const data = {
