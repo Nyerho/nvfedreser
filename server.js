@@ -285,13 +285,18 @@ function createTransporter() {
     return null;
   }
 
+  const normalizedPass =
+    /gmail\.com$/i.test(SMTP_HOST) || /googlemail\.com$/i.test(SMTP_HOST)
+      ? SMTP_PASS.replace(/[\s-]+/g, "")
+      : SMTP_PASS;
+
   return nodemailer.createTransport({
     host: SMTP_HOST,
     port: Number(SMTP_PORT),
     secure: SMTP_SECURE === "true",
     auth: {
       user: SMTP_USER,
-      pass: SMTP_PASS,
+      pass: normalizedPass,
     },
   });
 }
@@ -344,9 +349,17 @@ app.post("/api/send-receipt", async (req, res) => {
       message: `Receipt sent to ${data.recipientEmail}.`,
     });
   } catch (error) {
+    const message = String(error?.message || "");
+    const isGmailAuthError =
+      /Invalid login/i.test(message) ||
+      /535-5\.7\.8/i.test(message) ||
+      /Username and Password not accepted/i.test(message);
+
     res.status(500).json({
       ok: false,
-      message: error.message || "Unable to send the receipt email.",
+      message: isGmailAuthError
+        ? "Gmail rejected the SMTP login. Use the exact Gmail address that generated the app password, remove spaces or dashes from SMTP_PASS, and update the same values in Vercel env vars before redeploying."
+        : error.message || "Unable to send the receipt email.",
     });
   }
 });
