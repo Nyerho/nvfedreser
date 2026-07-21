@@ -1,14 +1,74 @@
 require("dotenv").config();
 
 const express = require("express");
+const fs = require("fs/promises");
 const nodemailer = require("nodemailer");
 const path = require("path");
+const { randomUUID } = require("crypto");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const dataDirectory = path.join(__dirname, "data");
+const receiptsFile = path.join(dataDirectory, "receipts.json");
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
+
+async function ensureReceiptsFile() {
+  await fs.mkdir(dataDirectory, { recursive: true });
+
+  try {
+    await fs.access(receiptsFile);
+  } catch {
+    await fs.writeFile(receiptsFile, "[]", "utf8");
+  }
+}
+
+async function readReceiptEntries() {
+  await ensureReceiptsFile();
+  const content = await fs.readFile(receiptsFile, "utf8");
+
+  try {
+    const parsed = JSON.parse(content);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeReceiptEntries(entries) {
+  await ensureReceiptsFile();
+  await fs.writeFile(receiptsFile, JSON.stringify(entries, null, 2), "utf8");
+}
+
+async function saveReceiptEntry(data) {
+  const entries = await readReceiptEntries();
+  const entry = {
+    id: randomUUID(),
+    recipientEmail: data.recipientEmail,
+    recipientName: data.recipientName,
+    subject: data.subject,
+    organizationName: data.organizationName,
+    amount: Number(data.amount),
+    currency: data.currency,
+    transactionType: data.transactionType,
+    status: data.status,
+    reference: data.reference,
+    transactionDate: data.transactionDate,
+    senderName: data.senderName,
+    senderAccount: data.senderAccount,
+    note: data.note,
+    accentColor: data.accentColor,
+    savedByUid: data.savedByUid || "",
+    savedByEmail: data.savedByEmail || "",
+    createdAt: new Date().toISOString(),
+  };
+
+  entries.unshift(entry);
+  await writeReceiptEntries(entries.slice(0, 100));
+
+  return entry;
+}
 
 function maskEmail(value) {
   const email = String(value || "");
@@ -331,6 +391,21 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+app.get("/api/receipts/recent", async (req, res) => {
+  try {
+    const entries = await readReceiptEntries();
+    res.json({
+      ok: true,
+      receipts: entries.slice(0, 6),
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      message: error.message || "Unable to load recent receipt history.",
+    });
+  }
+});
+
 app.post("/api/send-receipt", async (req, res) => {
   const data = {
     recipientEmail: (req.body.recipientEmail || "").trim(),
@@ -347,6 +422,8 @@ app.post("/api/send-receipt", async (req, res) => {
     senderAccount: (req.body.senderAccount || "").trim(),
     note: (req.body.note || "").trim(),
     accentColor: (req.body.accentColor || "#7c9cff").trim(),
+    savedByUid: (req.body.savedByUid || "").trim(),
+    savedByEmail: (req.body.savedByEmail || "").trim(),
   };
 
   if (!data.recipientEmail || !data.recipientName || !data.amount) {
@@ -374,9 +451,18 @@ app.post("/api/send-receipt", async (req, res) => {
       text: renderTextReceipt(data),
     });
 
+    let historyWarning = "";
+
+    try {
+      await saveReceiptEntry(data);
+    } catch (historyError) {
+      console.error("Unable to save receipt history:", historyError);
+      historyWarning = " Email sent, but local receipt history could not be updated.";
+    }
+
     res.json({
       ok: true,
-      message: `Receipt sent to ${data.recipientEmail}.`,
+      message: `Receipt sent to ${data.recipientEmail}.${historyWarning}`,
     });
   } catch (error) {
     const message = String(error?.message || "");

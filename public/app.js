@@ -1,11 +1,10 @@
 import {
   auth,
+  fetchRecentReceipts,
   getAuthorizedAdminRecord,
   loginAdmin,
   logoutAdmin,
-  saveReceiptRecord,
   watchAuthState,
-  watchRecentReceipts,
 } from "/firebase-client.js";
 
 const securityModal = document.getElementById("security-modal");
@@ -26,7 +25,7 @@ const receiptControls = Array.from(form.querySelectorAll("input, select, button"
 
 let currentUser = null;
 let authorizedAdmin = null;
-let stopHistoryWatch = null;
+let historyRefreshTimer = null;
 
 const previewNodes = {
   organizationName: document.getElementById("preview-org"),
@@ -156,32 +155,37 @@ function renderReceiptHistory(receipts) {
       </div>
       <div class="history-meta">
         <strong>${formatCurrency(receipt.amount, receipt.currency)}</strong>
-        <span>${formatReceiptDate(receipt.createdAt?.toDate ? receipt.createdAt.toDate() : receipt.transactionDate)}</span>
+        <span>${formatReceiptDate(receipt.createdAt || receipt.transactionDate)}</span>
       </div>
     `;
     historyList.appendChild(item);
   });
 }
 
-function startHistoryWatch() {
-  if (stopHistoryWatch) {
-    stopHistoryWatch();
-  }
-
-  stopHistoryWatch = watchRecentReceipts(renderReceiptHistory, (error) => {
+async function loadReceiptHistory() {
+  try {
+    const receipts = await fetchRecentReceipts();
+    renderReceiptHistory(receipts);
+  } catch (error) {
     historyList.innerHTML = "";
     historyEmpty.hidden = false;
-    historyEmpty.textContent = formatFirestoreAccessError(
-      error,
-      "Unable to load Firestore receipt history."
-    );
-  });
+    historyEmpty.textContent = error.message || "Unable to load recent receipt history.";
+  }
+}
+
+function startHistoryRefresh() {
+  if (historyRefreshTimer) {
+    window.clearInterval(historyRefreshTimer);
+  }
+
+  loadReceiptHistory();
+  historyRefreshTimer = window.setInterval(loadReceiptHistory, 15000);
 }
 
 function stopWatchingHistory() {
-  if (stopHistoryWatch) {
-    stopHistoryWatch();
-    stopHistoryWatch = null;
+  if (historyRefreshTimer) {
+    window.clearInterval(historyRefreshTimer);
+    historyRefreshTimer = null;
   }
 
   renderReceiptHistory([]);
@@ -257,7 +261,7 @@ async function evaluateAdminAccess(user) {
     accessSummary.textContent = `Authorized: ${user.email}${access.record.role ? ` (${access.record.role})` : ""}`;
     authStatus.textContent = "Admin access is active.";
     securityDetail.textContent = `Approved via Firestore ${access.source} record: ${access.docId}`;
-    startHistoryWatch();
+    startHistoryRefresh();
   } catch (error) {
     const message = formatFirestoreAccessError(error, "Unable to check admin approval.");
     securityDetail.textContent = `${message} ${buildAdminDocHint(user)}`;
@@ -287,12 +291,18 @@ async function submitReceipt(event) {
   const payload = getFormData();
 
   try {
+    const requestPayload = {
+      ...payload,
+      amount: Number(payload.amount),
+      savedByUid: auth.currentUser?.uid || "",
+      savedByEmail: auth.currentUser?.email || "",
+    };
     const response = await fetch("/api/send-receipt", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(requestPayload),
     });
 
     const result = await response.json();
@@ -301,14 +311,8 @@ async function submitReceipt(event) {
       throw new Error(result.message || "Unable to send the receipt.");
     }
 
-    await saveReceiptRecord({
-      ...payload,
-      amount: Number(payload.amount),
-      savedByUid: auth.currentUser?.uid || "",
-      savedByEmail: auth.currentUser?.email || "",
-    });
-
-    statusMessage.textContent = `${result.message} Firestore record saved.`;
+    await loadReceiptHistory();
+    statusMessage.textContent = result.message || "Receipt sent successfully.";
   } catch (error) {
     statusMessage.textContent = error.message;
   } finally {

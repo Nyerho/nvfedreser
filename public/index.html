@@ -72,7 +72,7 @@
             <li>Pass the security check</li>
             <li>Fill in transaction details</li>
             <li>Review the live receipt preview</li>
-            <li>Send and log the receipt to Firestore</li>
+            <li>Send and log the receipt to recent history</li>
           </ul>
         </section>
       </aside>
@@ -84,7 +84,7 @@
             <h2 class="hero-title">Create polished transaction receipts from one secure workspace.</h2>
             <p class="lede">
               Manage admin verification, build receipts, review the mobile-style preview, and keep a live log
-              of sent records in Firestore.
+              of recently sent records.
             </p>
             <div class="hero-actions">
               <a class="hero-link primary" href="#receipt-form">Build Receipt</a>
@@ -105,7 +105,7 @@
             <article class="metric-card">
               <span class="metric-label">Logging</span>
               <strong class="metric-value">Auto Saved</strong>
-              <small class="metric-copy">Successful sends are written to Firestore receipt history.</small>
+              <small class="metric-copy">Successful sends are written to the app receipt history.</small>
             </article>
           </div>
         </section>
@@ -211,10 +211,10 @@
             <section class="history-card panel" id="history-card">
               <div class="history-header">
                 <div>
-                  <p class="auth-eyebrow">Firestore</p>
+                  <p class="auth-eyebrow">History</p>
                   <h2 class="auth-title">Recent Receipts</h2>
                 </div>
-                <p class="history-copy">Shows the latest saved receipt records from your `receipts` collection.</p>
+                <p class="history-copy">Shows the latest saved receipt records from your app history log.</p>
               </div>
               <div id="history-empty" class="history-empty">Sign in to load recent receipt activity.</div>
               <ul id="history-list" class="history-list"></ul>

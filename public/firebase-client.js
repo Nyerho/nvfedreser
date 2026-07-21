@@ -7,16 +7,9 @@ import {
   signOut,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-auth.js";
 import {
-  addDoc,
-  collection,
   doc,
   getFirestore,
   getDoc,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -55,11 +48,15 @@ function watchAuthState(callback) {
   return onAuthStateChanged(auth, callback);
 }
 
-function saveReceiptRecord(data) {
-  return addDoc(collection(db, "receipts"), {
-    ...data,
-    createdAt: serverTimestamp(),
-  });
+async function fetchRecentReceipts() {
+  const response = await fetch("/api/receipts/recent");
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.message || "Unable to load recent receipt history.");
+  }
+
+  return Array.isArray(result.receipts) ? result.receipts : [];
 }
 
 async function getAuthorizedAdminRecord(user) {
@@ -84,37 +81,11 @@ async function getAuthorizedAdminRecord(user) {
   };
 }
 
-function watchRecentReceipts(callback, errorCallback) {
-  const receiptsQuery = query(
-    collection(db, "receipts"),
-    orderBy("createdAt", "desc"),
-    limit(6)
-  );
-
-  return onSnapshot(
-    receiptsQuery,
-    (snapshot) => {
-      const receipts = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      callback(receipts);
-    },
-    (error) => {
-      if (errorCallback) {
-        errorCallback(error);
-      }
-    }
-  );
-}
-
 export {
   auth,
+  fetchRecentReceipts,
   getAuthorizedAdminRecord,
   loginAdmin,
   logoutAdmin,
-  saveReceiptRecord,
   watchAuthState,
-  watchRecentReceipts,
 };
