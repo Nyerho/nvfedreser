@@ -109,9 +109,14 @@ function formatAmount(amount, currency) {
 function renderReceiptEmail(data) {
   const receiptAmount = formatAmount(data.amount, data.currency);
   const accent = data.accentColor || "#7c9cff";
-  const brandMarkup = data.organizationName
-    ? `<div class="brand">${escapeHtml(data.organizationName)}</div>`
-    : "";
+  const brandMarkup = `
+    <img
+      src="cid:nvlogo"
+      alt="${escapeHtml(data.organizationName || "Logo")}"
+      width="140"
+      style="display:block; margin:0 auto 18px; width:140px; max-width:140px; height:auto;"
+    />
+  `;
   const rows = [
     ["Recipient", data.recipientName],
     ["Recipient Email", data.recipientEmail],
@@ -449,6 +454,13 @@ app.post("/api/send-receipt", async (req, res) => {
       subject: data.subject,
       html: renderReceiptEmail(data),
       text: renderTextReceipt(data),
+      attachments: [
+        {
+          filename: "nvlogo.png",
+          path: path.join(__dirname, "public", "nvlogo.png"),
+          cid: "nvlogo",
+        },
+      ],
     });
 
     let historyWarning = "";
