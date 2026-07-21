@@ -115,6 +115,15 @@ function formatReceiptDate(value) {
   return parsed.toLocaleString();
 }
 
+function formatFirestoreAccessError(error, fallback) {
+  const message = String(error?.message || "");
+  if (error?.code === "permission-denied" || /missing or insufficient permissions/i.test(message)) {
+    return "Firestore blocked access. Publish the updated rules, then create adminUsers/{uid} with active: true for this account.";
+  }
+
+  return message || fallback;
+}
+
 function renderReceiptHistory(receipts) {
   historyList.innerHTML = "";
 
@@ -153,7 +162,10 @@ function startHistoryWatch() {
   stopHistoryWatch = watchRecentReceipts(renderReceiptHistory, (error) => {
     historyList.innerHTML = "";
     historyEmpty.hidden = false;
-    historyEmpty.textContent = error.message || "Unable to load Firestore receipt history.";
+    historyEmpty.textContent = formatFirestoreAccessError(
+      error,
+      "Unable to load Firestore receipt history."
+    );
   });
 }
 
@@ -239,8 +251,9 @@ async function evaluateAdminAccess(user) {
     securityDetail.textContent = `Approved via Firestore ${access.source} record: ${access.docId}`;
     startHistoryWatch();
   } catch (error) {
-    securityDetail.textContent = error.message || "Unable to check admin approval.";
-    setUnauthorizedState(error.message || "Unable to check admin approval.");
+    const message = formatFirestoreAccessError(error, "Unable to check admin approval.");
+    securityDetail.textContent = message;
+    setUnauthorizedState(message);
   }
 }
 

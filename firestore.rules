@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isActiveAdmin(uid) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/adminUsers/$(uid))
+        && get(/databases/$(database)/documents/adminUsers/$(uid)).data.active == true;
+    }
+
+    match /adminUsers/{uid} {
+      allow read: if isSelf(uid);
+      allow write: if false;
+    }
+
+    match /receipts/{receiptId} {
+      allow read, create: if isActiveAdmin(request.auth.uid);
+      allow update, delete: if false;
+    }
+  }
+}

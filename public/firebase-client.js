@@ -12,13 +12,11 @@ import {
   doc,
   getFirestore,
   getDoc,
-  getDocs,
   limit,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
-  where,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -79,29 +77,10 @@ async function getAuthorizedAdminRecord(user) {
     };
   }
 
-  const emailQuery = query(
-    collection(db, "adminUsers"),
-    where("email", "==", user.email || ""),
-    limit(1)
-  );
-  const emailMatch = await getDocs(emailQuery);
-
-  if (!emailMatch.empty) {
-    const adminDoc = emailMatch.docs[0];
-    if (adminDoc.data().active !== false) {
-      return {
-        allowed: true,
-        source: "email",
-        record: adminDoc.data(),
-        docId: adminDoc.id,
-      };
-    }
-  }
-
   return {
     allowed: false,
     reason:
-      "This signed-in account is not approved in Firestore. Add an adminUsers document with active: true.",
+      "This signed-in account is not approved in Firestore. Add an adminUsers/{uid} document with active: true.",
   };
 }
 

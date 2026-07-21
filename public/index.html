@@ -12,8 +12,8 @@
         <p class="auth-eyebrow">Security Check</p>
         <h2 class="security-title">Authorized Admin Access Only</h2>
         <p class="security-copy">
-          Sign in with a Firebase account that is also approved in Firestore. Only admins listed in the
-          `adminUsers` collection can unlock this dashboard.
+          Sign in with a Firebase account that is also approved in Firestore. Only admins with an active
+          `adminUsers/{uid}` document can unlock this dashboard.
         </p>
         <form id="auth-form" class="auth-form modal-auth-form">
           <div class="grid two-up">
