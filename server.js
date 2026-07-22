@@ -644,15 +644,7 @@ app.post("/api/send-receipt", async (req, res) => {
     const brevoApiKey = String(process.env.BREVO_API_KEY || "").trim();
 
     if (brevoApiKey) {
-      try {
-        await sendReceiptViaBrevoApi(data);
-      } catch (apiError) {
-        if (!transporter) {
-          throw apiError;
-        }
-
-        await sendReceiptViaSmtp(transporter, data);
-      }
+      await sendReceiptViaBrevoApi(data);
     } else {
       await sendReceiptViaSmtp(transporter, data);
     }
