@@ -529,12 +529,16 @@ async function sendReceiptViaBrevoApi(data) {
           let apiMessage = "";
           try {
             const parsed = JSON.parse(responseBody);
-            apiMessage = parsed?.message || parsed?.error || "";
+            apiMessage = parsed?.message || parsed?.error || parsed?.code || "";
           } catch {
             apiMessage = responseBody;
           }
 
-          reject(new Error(apiMessage || `Brevo API error (${response.statusCode || "unknown"})`));
+          const statusLabel = response.statusCode ? `HTTP ${response.statusCode}` : "HTTP unknown";
+          const trimmedBody = String(responseBody || "").trim();
+          const shortBody = trimmedBody.length > 600 ? `${trimmedBody.slice(0, 600)}...` : trimmedBody;
+          const detail = apiMessage || shortBody;
+          reject(new Error(detail ? `Brevo API error (${statusLabel}): ${detail}` : `Brevo API error (${statusLabel})`));
         });
       }
     );
@@ -569,9 +573,17 @@ app.get("/api/health", (req, res) => {
   const user = process.env.SMTP_USER || "";
   const from = process.env.MAIL_FROM || "";
   const brevoApiConfigured = Boolean(String(process.env.BREVO_API_KEY || "").trim());
+  const commitSha = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || "";
+  const commitRef = process.env.VERCEL_GIT_COMMIT_REF || "";
+  const vercelEnv = process.env.VERCEL_ENV || "";
 
   res.json({
     ok: true,
+    build: {
+      vercelEnv,
+      commitRef,
+      commitSha: commitSha ? String(commitSha).slice(0, 12) : "",
+    },
     smtp: {
       configured: Boolean(host && port && user && process.env.SMTP_PASS),
       host,
@@ -631,9 +643,10 @@ app.post("/api/send-receipt", async (req, res) => {
     });
   }
 
+  const brevoApiKey = String(process.env.BREVO_API_KEY || "").trim();
   const transporter = createTransporter();
 
-  if (!transporter) {
+  if (!brevoApiKey && !transporter) {
     return res.status(500).json({
       ok: false,
       message: "SMTP settings are missing. Add them to your .env file before sending.",
@@ -641,12 +654,14 @@ app.post("/api/send-receipt", async (req, res) => {
   }
 
   try {
-    const brevoApiKey = String(process.env.BREVO_API_KEY || "").trim();
+    let sendMode = "";
 
     if (brevoApiKey) {
       await sendReceiptViaBrevoApi(data);
+      sendMode = "brevo-api";
     } else {
       await sendReceiptViaSmtp(transporter, data);
+      sendMode = "smtp";
     }
 
     let historyWarning = "";
@@ -661,6 +676,7 @@ app.post("/api/send-receipt", async (req, res) => {
     res.json({
       ok: true,
       message: `Receipt sent to ${data.recipientEmail}.${historyWarning}`,
+      mode: sendMode,
     });
   } catch (error) {
     const message = String(error?.message || "");
@@ -675,11 +691,13 @@ app.post("/api/send-receipt", async (req, res) => {
 
     res.status(500).json({
       ok: false,
-      message: isGmailAuthError
-        ? "Gmail rejected the SMTP login. Use the exact Gmail address that generated the app password, remove spaces or dashes from SMTP_PASS, and update the same values in Vercel env vars before redeploying."
-        : isBrevoActivationError
-          ? "Brevo rejected SMTP because your account is not activated yet (502 5.7.0). In Brevo: complete account verification, verify your sender/domain (SPF/DKIM), then request SMTP activation from Support. After activation, retry."
-          : error.message || "Unable to send the receipt email.",
+      message: brevoApiKey
+        ? error.message || "Brevo API rejected the send request."
+        : isGmailAuthError
+          ? "Gmail rejected the SMTP login. Use the exact Gmail address that generated the app password, remove spaces or dashes from SMTP_PASS, and update the same values in Vercel env vars before redeploying."
+          : isBrevoActivationError
+            ? "Brevo rejected SMTP because your account is not activated yet (502 5.7.0). In Brevo: complete account verification, verify your sender/domain (SPF/DKIM), then request SMTP activation from Support. After activation, retry."
+            : error.message || "Unable to send the receipt email.",
     });
   }
 });
