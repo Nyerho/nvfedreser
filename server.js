@@ -482,12 +482,18 @@ app.post("/api/send-receipt", async (req, res) => {
       /Invalid login/i.test(message) ||
       /535-5\.7\.8/i.test(message) ||
       /Username and Password not accepted/i.test(message);
+    const isBrevoActivationError =
+      /not yet activated/i.test(message) ||
+      /contact@sendinblue\.com/i.test(message) ||
+      /502 5\.7\.0/i.test(message);
 
     res.status(500).json({
       ok: false,
       message: isGmailAuthError
         ? "Gmail rejected the SMTP login. Use the exact Gmail address that generated the app password, remove spaces or dashes from SMTP_PASS, and update the same values in Vercel env vars before redeploying."
-        : error.message || "Unable to send the receipt email.",
+        : isBrevoActivationError
+          ? "Brevo rejected SMTP because your account is not activated yet (502 5.7.0). In Brevo: complete account verification, verify your sender/domain (SPF/DKIM), then request SMTP activation from Support. After activation, retry."
+          : error.message || "Unable to send the receipt email.",
     });
   }
 });
