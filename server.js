@@ -11,23 +11,68 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const dataDirectory = path.join(__dirname, "data");
 const receiptsFile = path.join(dataDirectory, "receipts.json");
+let volatileReceiptEntries = [];
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
+function isReadOnlyFilesystemError(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "");
+
+  return (
+    code === "EROFS" ||
+    code === "EPERM" ||
+    code === "EACCES" ||
+    /read-only/i.test(message) ||
+    /operation not permitted/i.test(message)
+  );
+}
+
 async function ensureReceiptsFile() {
-  await fs.mkdir(dataDirectory, { recursive: true });
+  try {
+    await fs.mkdir(dataDirectory, { recursive: true });
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      return false;
+    }
+
+    throw error;
+  }
 
   try {
     await fs.access(receiptsFile);
   } catch {
-    await fs.writeFile(receiptsFile, "[]", "utf8");
+    try {
+      await fs.writeFile(receiptsFile, "[]", "utf8");
+    } catch (error) {
+      if (isReadOnlyFilesystemError(error)) {
+        return false;
+      }
+
+      throw error;
+    }
   }
+
+  return true;
 }
 
 async function readReceiptEntries() {
-  await ensureReceiptsFile();
-  const content = await fs.readFile(receiptsFile, "utf8");
+  const canUseFileStorage = await ensureReceiptsFile();
+  if (!canUseFileStorage) {
+    return volatileReceiptEntries;
+  }
+
+  let content = "[]";
+  try {
+    content = await fs.readFile(receiptsFile, "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      return volatileReceiptEntries;
+    }
+
+    throw error;
+  }
 
   try {
     const parsed = JSON.parse(content);
@@ -38,8 +83,22 @@ async function readReceiptEntries() {
 }
 
 async function writeReceiptEntries(entries) {
-  await ensureReceiptsFile();
-  await fs.writeFile(receiptsFile, JSON.stringify(entries, null, 2), "utf8");
+  volatileReceiptEntries = Array.isArray(entries) ? entries.slice(0, 100) : [];
+
+  const canUseFileStorage = await ensureReceiptsFile();
+  if (!canUseFileStorage) {
+    return;
+  }
+
+  try {
+    await fs.writeFile(receiptsFile, JSON.stringify(volatileReceiptEntries, null, 2), "utf8");
+  } catch (error) {
+    if (isReadOnlyFilesystemError(error)) {
+      return;
+    }
+
+    throw error;
+  }
 }
 
 async function saveReceiptEntry(data) {
@@ -509,6 +568,7 @@ app.get("/api/health", (req, res) => {
   const secure = process.env.SMTP_SECURE === "true";
   const user = process.env.SMTP_USER || "";
   const from = process.env.MAIL_FROM || "";
+  const brevoApiConfigured = Boolean(String(process.env.BREVO_API_KEY || "").trim());
 
   res.json({
     ok: true,
@@ -519,6 +579,12 @@ app.get("/api/health", (req, res) => {
       secure,
       user: maskEmail(user),
       from: from ? from.replace(/<([^>]+)>/, "<***@***>") : "",
+    },
+    brevo: {
+      apiConfigured: brevoApiConfigured,
+    },
+    storage: {
+      mode: process.env.VERCEL ? "volatile-memory" : "local-file",
     },
   });
 });
