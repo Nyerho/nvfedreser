@@ -486,6 +486,23 @@ async function sendReceiptViaBrevoApi(data) {
   });
 }
 
+async function sendReceiptViaSmtp(transporter, data) {
+  await transporter.sendMail({
+    from: process.env.MAIL_FROM || process.env.SMTP_USER,
+    to: data.recipientEmail,
+    subject: data.subject,
+    html: renderReceiptEmail(data, { inlineLogo: true }),
+    text: renderTextReceipt(data),
+    attachments: [
+      {
+        filename: "nvlogo.png",
+        path: path.join(__dirname, "public", "nvlogo.png"),
+        cid: "nvlogo",
+      },
+    ],
+  });
+}
+
 app.get("/api/health", (req, res) => {
   const host = process.env.SMTP_HOST || "";
   const port = process.env.SMTP_PORT || "";
@@ -558,33 +575,20 @@ app.post("/api/send-receipt", async (req, res) => {
   }
 
   try {
-    try {
-      await transporter.sendMail({
-        from: process.env.MAIL_FROM || process.env.SMTP_USER,
-        to: data.recipientEmail,
-        subject: data.subject,
-        html: renderReceiptEmail(data, { inlineLogo: true }),
-        text: renderTextReceipt(data),
-        attachments: [
-          {
-            filename: "nvlogo.png",
-            path: path.join(__dirname, "public", "nvlogo.png"),
-            cid: "nvlogo",
-          },
-        ],
-      });
-    } catch (smtpError) {
-      const smtpMessage = String(smtpError?.message || "");
-      const isBrevoActivationError =
-        /not yet activated/i.test(smtpMessage) ||
-        /contact@sendinblue\.com/i.test(smtpMessage) ||
-        /502 5\.7\.0/i.test(smtpMessage);
+    const brevoApiKey = String(process.env.BREVO_API_KEY || "").trim();
 
-      if (!isBrevoActivationError) {
-        throw smtpError;
+    if (brevoApiKey) {
+      try {
+        await sendReceiptViaBrevoApi(data);
+      } catch (apiError) {
+        if (!transporter) {
+          throw apiError;
+        }
+
+        await sendReceiptViaSmtp(transporter, data);
       }
-
-      await sendReceiptViaBrevoApi(data);
+    } else {
+      await sendReceiptViaSmtp(transporter, data);
     }
 
     let historyWarning = "";
