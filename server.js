@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const express = require("express");
 const fs = require("fs/promises");
+const https = require("https");
 const nodemailer = require("nodemailer");
 const path = require("path");
 const { randomUUID } = require("crypto");
@@ -106,17 +107,36 @@ function formatAmount(amount, currency) {
   }
 }
 
-function renderReceiptEmail(data) {
+function parseMailFrom(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return { name: "", email: "" };
+  }
+
+  const match = raw.match(/^(.*)<([^>]+)>$/);
+  if (!match) {
+    return { name: "", email: raw };
+  }
+
+  return { name: match[1].trim().replace(/^"|"$/g, ""), email: match[2].trim() };
+}
+
+function renderReceiptEmail(data, options = {}) {
   const receiptAmount = formatAmount(data.amount, data.currency);
   const accent = data.accentColor || "#7c9cff";
-  const brandMarkup = `
-    <img
-      src="cid:nvlogo"
-      alt="${escapeHtml(data.organizationName || "Logo")}"
-      width="140"
-      style="display:block; margin:0 auto 18px; width:140px; max-width:140px; height:auto;"
-    />
-  `;
+  const inlineLogo = options.inlineLogo !== false;
+  const brandMarkup = inlineLogo
+    ? `
+      <img
+        src="cid:nvlogo"
+        alt="${escapeHtml(data.organizationName || "Logo")}"
+        width="140"
+        style="display:block; margin:0 auto 18px; width:140px; max-width:140px; height:auto;"
+      />
+    `
+    : data.organizationName
+      ? `<div class="brand">${escapeHtml(data.organizationName)}</div>`
+      : "";
   const rows = [
     ["Recipient", data.recipientName],
     ["Recipient Email", data.recipientEmail],
@@ -376,6 +396,96 @@ function createTransporter() {
   });
 }
 
+async function sendReceiptViaBrevoApi(data) {
+  const apiKey = String(process.env.BREVO_API_KEY || "").trim();
+  if (!apiKey) {
+    throw new Error("BREVO_API_KEY is missing.");
+  }
+
+  const senderValue = process.env.MAIL_FROM || process.env.SMTP_USER || "";
+  const sender = parseMailFrom(senderValue);
+  if (!sender.email) {
+    throw new Error("MAIL_FROM is missing a valid sender email.");
+  }
+
+  let logoBase64 = "";
+  try {
+    const logoBuffer = await fs.readFile(path.join(__dirname, "public", "nvlogo.png"));
+    logoBase64 = logoBuffer.toString("base64");
+  } catch {
+    logoBase64 = "";
+  }
+
+  const payload = {
+    sender: {
+      name: sender.name || undefined,
+      email: sender.email,
+    },
+    to: [
+      {
+        email: data.recipientEmail,
+        name: data.recipientName || undefined,
+      },
+    ],
+    subject: data.subject,
+    htmlContent: renderReceiptEmail(data, { inlineLogo: false }),
+    textContent: renderTextReceipt(data),
+  };
+
+  if (logoBase64) {
+    payload.attachment = [
+      {
+        name: "nvlogo.png",
+        content: logoBase64,
+      },
+    ];
+  }
+
+  const body = JSON.stringify(payload);
+
+  return new Promise((resolve, reject) => {
+    const request = https.request(
+      "https://api.brevo.com/v3/smtp/email",
+      {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+          "api-key": apiKey,
+        },
+      },
+      (response) => {
+        let responseBody = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          responseBody += chunk;
+        });
+        response.on("end", () => {
+          if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) {
+            resolve(responseBody);
+            return;
+          }
+
+          let apiMessage = "";
+          try {
+            const parsed = JSON.parse(responseBody);
+            apiMessage = parsed?.message || parsed?.error || "";
+          } catch {
+            apiMessage = responseBody;
+          }
+
+          reject(new Error(apiMessage || `Brevo API error (${response.statusCode || "unknown"})`));
+        });
+      }
+    );
+
+    request.on("error", reject);
+    request.write(body);
+    request.end();
+  });
+}
+
 app.get("/api/health", (req, res) => {
   const host = process.env.SMTP_HOST || "";
   const port = process.env.SMTP_PORT || "";
@@ -448,20 +558,34 @@ app.post("/api/send-receipt", async (req, res) => {
   }
 
   try {
-    await transporter.sendMail({
-      from: process.env.MAIL_FROM || process.env.SMTP_USER,
-      to: data.recipientEmail,
-      subject: data.subject,
-      html: renderReceiptEmail(data),
-      text: renderTextReceipt(data),
-      attachments: [
-        {
-          filename: "nvlogo.png",
-          path: path.join(__dirname, "public", "nvlogo.png"),
-          cid: "nvlogo",
-        },
-      ],
-    });
+    try {
+      await transporter.sendMail({
+        from: process.env.MAIL_FROM || process.env.SMTP_USER,
+        to: data.recipientEmail,
+        subject: data.subject,
+        html: renderReceiptEmail(data, { inlineLogo: true }),
+        text: renderTextReceipt(data),
+        attachments: [
+          {
+            filename: "nvlogo.png",
+            path: path.join(__dirname, "public", "nvlogo.png"),
+            cid: "nvlogo",
+          },
+        ],
+      });
+    } catch (smtpError) {
+      const smtpMessage = String(smtpError?.message || "");
+      const isBrevoActivationError =
+        /not yet activated/i.test(smtpMessage) ||
+        /contact@sendinblue\.com/i.test(smtpMessage) ||
+        /502 5\.7\.0/i.test(smtpMessage);
+
+      if (!isBrevoActivationError) {
+        throw smtpError;
+      }
+
+      await sendReceiptViaBrevoApi(data);
+    }
 
     let historyWarning = "";
 
