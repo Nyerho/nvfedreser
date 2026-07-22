@@ -455,6 +455,30 @@ function createTransporter() {
   });
 }
 
+function createFallbackTransporter() {
+  const {
+    FALLBACK_SMTP_HOST,
+    FALLBACK_SMTP_PORT,
+    FALLBACK_SMTP_USER,
+    FALLBACK_SMTP_PASS,
+    FALLBACK_SMTP_SECURE,
+  } = process.env;
+
+  if (!FALLBACK_SMTP_HOST || !FALLBACK_SMTP_PORT || !FALLBACK_SMTP_USER || !FALLBACK_SMTP_PASS) {
+    return null;
+  }
+
+  return nodemailer.createTransport({
+    host: FALLBACK_SMTP_HOST,
+    port: Number(FALLBACK_SMTP_PORT),
+    secure: FALLBACK_SMTP_SECURE === "true",
+    auth: {
+      user: FALLBACK_SMTP_USER,
+      pass: FALLBACK_SMTP_PASS,
+    },
+  });
+}
+
 async function sendReceiptViaBrevoApi(data) {
   const apiKey = String(process.env.BREVO_API_KEY || "").trim();
   if (!apiKey) {
@@ -551,7 +575,11 @@ async function sendReceiptViaBrevoApi(data) {
 
 async function sendReceiptViaSmtp(transporter, data) {
   await transporter.sendMail({
-    from: process.env.MAIL_FROM || process.env.SMTP_USER,
+    from:
+      process.env.FALLBACK_MAIL_FROM ||
+      process.env.MAIL_FROM ||
+      process.env.FALLBACK_SMTP_USER ||
+      process.env.SMTP_USER,
     to: data.recipientEmail,
     subject: data.subject,
     html: renderReceiptEmail(data, { inlineLogo: true }),
@@ -573,6 +601,12 @@ app.get("/api/health", (req, res) => {
   const user = process.env.SMTP_USER || "";
   const from = process.env.MAIL_FROM || "";
   const brevoApiConfigured = Boolean(String(process.env.BREVO_API_KEY || "").trim());
+  const fallbackSmtpConfigured = Boolean(
+    process.env.FALLBACK_SMTP_HOST &&
+      process.env.FALLBACK_SMTP_PORT &&
+      process.env.FALLBACK_SMTP_USER &&
+      process.env.FALLBACK_SMTP_PASS
+  );
   const commitSha = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || "";
   const commitRef = process.env.VERCEL_GIT_COMMIT_REF || "";
   const vercelEnv = process.env.VERCEL_ENV || "";
@@ -594,6 +628,9 @@ app.get("/api/health", (req, res) => {
     },
     brevo: {
       apiConfigured: brevoApiConfigured,
+    },
+    fallbackSmtp: {
+      configured: fallbackSmtpConfigured,
     },
     storage: {
       mode: process.env.VERCEL ? "volatile-memory" : "local-file",
@@ -645,11 +682,13 @@ app.post("/api/send-receipt", async (req, res) => {
 
   const brevoApiKey = String(process.env.BREVO_API_KEY || "").trim();
   const transporter = createTransporter();
+  const fallbackTransporter = createFallbackTransporter();
 
-  if (!brevoApiKey && !transporter) {
+  if (!brevoApiKey && !transporter && !fallbackTransporter) {
     return res.status(500).json({
       ok: false,
-      message: "SMTP settings are missing. Add them to your .env file before sending.",
+      message:
+        "No mail provider is configured. Set BREVO_API_KEY (Brevo API) or SMTP_* (SMTP) or FALLBACK_SMTP_* (backup SMTP) in Vercel environment variables, then redeploy.",
     });
   }
 
@@ -657,11 +696,30 @@ app.post("/api/send-receipt", async (req, res) => {
     let sendMode = "";
 
     if (brevoApiKey) {
-      await sendReceiptViaBrevoApi(data);
-      sendMode = "brevo-api";
-    } else {
+      try {
+        await sendReceiptViaBrevoApi(data);
+        sendMode = "brevo-api";
+      } catch (brevoError) {
+        const brevoMessage = String(brevoError?.message || "");
+        const isBrevoNotActivated =
+          /smtp account is not yet activated/i.test(brevoMessage) ||
+          /contact@brevo\.com/i.test(brevoMessage) ||
+          /contact@sendinblue\.com/i.test(brevoMessage) ||
+          /\bHTTP 403\b/i.test(brevoMessage);
+
+        if (!isBrevoNotActivated || !fallbackTransporter) {
+          throw brevoError;
+        }
+
+        await sendReceiptViaSmtp(fallbackTransporter, data);
+        sendMode = "fallback-smtp";
+      }
+    } else if (transporter) {
       await sendReceiptViaSmtp(transporter, data);
       sendMode = "smtp";
+    } else {
+      await sendReceiptViaSmtp(fallbackTransporter, data);
+      sendMode = "fallback-smtp";
     }
 
     let historyWarning = "";
