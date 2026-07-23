@@ -30,6 +30,10 @@ function isReadOnlyFilesystemError(error) {
 }
 
 async function ensureReceiptsFile() {
+  if (process.env.VERCEL || process.env.VERCEL_ENV) {
+    return false;
+  }
+
   try {
     await fs.mkdir(dataDirectory, { recursive: true });
   } catch (error) {
@@ -102,7 +106,6 @@ async function writeReceiptEntries(entries) {
 }
 
 async function saveReceiptEntry(data) {
-  const entries = await readReceiptEntries();
   const entry = {
     id: randomUUID(),
     recipientEmail: data.recipientEmail,
@@ -124,8 +127,21 @@ async function saveReceiptEntry(data) {
     createdAt: new Date().toISOString(),
   };
 
+  let entries = [];
+  try {
+    entries = await readReceiptEntries();
+  } catch {
+    entries = volatileReceiptEntries;
+  }
+
   entries.unshift(entry);
-  await writeReceiptEntries(entries.slice(0, 100));
+  volatileReceiptEntries = entries.slice(0, 100);
+
+  try {
+    await writeReceiptEntries(volatileReceiptEntries);
+  } catch {
+    // ignore
+  }
 
   return entry;
 }
@@ -393,8 +409,8 @@ function renderReceiptEmail(data, options = {}) {
           <tr>
             <td class="content">
               ${brandMarkup}
-              <h1 class="title">Transaction Confirmation</h1>
-              <p class="copy">You received a new completed transaction on your account.</p>
+              <h1 class="title">Receipt</h1>
+              <p class="copy">This is an automated receipt for a recent transaction.</p>
               <p class="section-label">From</p>
               <p class="section-value">${escapeHtml(data.senderName || "Sender")}</p>
               <p class="section-subvalue">${escapeHtml(data.senderAccount || "Account details unavailable")}</p>
@@ -405,7 +421,10 @@ function renderReceiptEmail(data, options = {}) {
               <table role="presentation" class="details" cellspacing="0" cellpadding="0">
                 ${rows}
               </table>
-              <p class="note">${escapeHtml(data.note || "This is an automated transaction receipt.")}</p>
+              <p class="note">${escapeHtml(data.note || "This receipt was generated automatically.")}</p>
+              <p class="note">
+                If you did not expect this email, you can ignore it. This message is for informational purposes only.
+              </p>
             </td>
           </tr>
         </table>
@@ -417,7 +436,7 @@ function renderTextReceipt(data) {
   const receiptAmount = formatAmount(data.amount, data.currency);
 
   return [
-    `${data.organizationName || "Receipt"} - Transaction Confirmation`,
+    `${data.organizationName || "Receipt"} - Receipt`,
     "",
     `Amount: ${receiptAmount}`,
     `Recipient: ${data.recipientName}`,
@@ -574,6 +593,13 @@ async function sendReceiptViaBrevoApi(data) {
 }
 
 async function sendReceiptViaSmtp(transporter, data) {
+  const replyToValue =
+    process.env.FALLBACK_MAIL_FROM ||
+    process.env.MAIL_FROM ||
+    process.env.FALLBACK_SMTP_USER ||
+    process.env.SMTP_USER ||
+    "";
+
   await transporter.sendMail({
     from:
       process.env.FALLBACK_MAIL_FROM ||
@@ -582,6 +608,11 @@ async function sendReceiptViaSmtp(transporter, data) {
       process.env.SMTP_USER,
     to: data.recipientEmail,
     subject: data.subject,
+    replyTo: replyToValue,
+    headers: {
+      "Auto-Submitted": "auto-generated",
+      "X-Auto-Response-Suppress": "All",
+    },
     html: renderReceiptEmail(data, { inlineLogo: true }),
     text: renderTextReceipt(data),
     attachments: [
@@ -657,7 +688,7 @@ app.post("/api/send-receipt", async (req, res) => {
   const data = {
     recipientEmail: (req.body.recipientEmail || "").trim(),
     recipientName: (req.body.recipientName || "").trim(),
-    subject: (req.body.subject || "Transaction Confirmation").trim(),
+    subject: (req.body.subject || "Receipt").trim(),
     organizationName: (req.body.organizationName || "").trim(),
     amount: req.body.amount,
     currency: (req.body.currency || "USD").trim(),
