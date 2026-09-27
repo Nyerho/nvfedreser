@@ -54,14 +54,31 @@ function watchAuthState(callback) {
 }
 
 async function fetchRecentReceipts() {
-  const response = await fetch("/api/receipts/recent");
-  const result = await response.json();
+  const endpoint = new URL("/api/receipts/recent", window.location.origin);
+  let lastError;
 
-  if (!response.ok) {
-    throw new Error(result.message || "Unable to load recent receipt history.");
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(endpoint, {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || "Unable to load recent receipt history.");
+      }
+
+      return Array.isArray(result.receipts) ? result.receipts : [];
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) {
+        await new Promise((resolve) => window.setTimeout(resolve, 500 * (attempt + 1)));
+      }
+    }
   }
 
-  return Array.isArray(result.receipts) ? result.receipts : [];
+  throw lastError || new Error("Unable to load recent receipt history.");
 }
 
 async function getAuthorizedAdminRecord(user) {

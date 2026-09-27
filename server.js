@@ -561,6 +561,8 @@ app.get("/api/health", (req, res) => {
 });
 
 app.get("/api/receipts/recent", async (req, res) => {
+  res.set("Cache-Control", "no-store, max-age=0");
+
   try {
     const entries = await readReceiptEntries();
     res.json({
