@@ -450,16 +450,16 @@ function renderTextReceipt(data) {
   ].join("\n");
 }
 
-async function sendReceiptViaBrevoApi(data) {
-  const apiKey = String(process.env.BREVO_API_KEY || "").trim();
+async function sendReceiptViaResendApi(data) {
+  const apiKey = String(process.env.RESEND_API_KEY || "").trim();
   if (!apiKey) {
-    throw new Error("BREVO_API_KEY is missing.");
+    throw new Error("RESEND_API_KEY is missing.");
   }
 
-  const senderValue = process.env.MAIL_FROM || "";
+  const senderValue = process.env.RESEND_FROM || process.env.MAIL_FROM || "";
   const sender = parseMailFrom(senderValue);
   if (!sender.email) {
-    throw new Error("MAIL_FROM is missing a valid sender email.");
+    throw new Error("RESEND_FROM or MAIL_FROM is missing a valid sender email.");
   }
 
   let logoBase64 = "";
@@ -471,25 +471,17 @@ async function sendReceiptViaBrevoApi(data) {
   }
 
   const payload = {
-    sender: {
-      name: sender.name || undefined,
-      email: sender.email,
-    },
-    to: [
-      {
-        email: data.recipientEmail,
-        name: data.recipientName || undefined,
-      },
-    ],
+    from: sender.name ? `${sender.name} <${sender.email}>` : sender.email,
+    to: [data.recipientEmail],
     subject: data.subject,
-    htmlContent: renderReceiptEmail(data, { inlineLogo: false }),
-    textContent: renderTextReceipt(data),
+    html: renderReceiptEmail(data, { inlineLogo: false }),
+    text: renderTextReceipt(data),
   };
 
   if (logoBase64) {
-    payload.attachment = [
+    payload.attachments = [
       {
-        name: "nvlogo.png",
+        filename: "nvlogo.png",
         content: logoBase64,
       },
     ];
@@ -499,14 +491,14 @@ async function sendReceiptViaBrevoApi(data) {
 
   return new Promise((resolve, reject) => {
     const request = https.request(
-      "https://api.brevo.com/v3/smtp/email",
+      "https://api.resend.com/emails",
       {
         method: "POST",
         headers: {
           accept: "application/json",
           "content-type": "application/json",
           "content-length": Buffer.byteLength(body),
-          "api-key": apiKey,
+          authorization: `Bearer ${apiKey}`,
         },
       },
       (response) => {
@@ -533,7 +525,7 @@ async function sendReceiptViaBrevoApi(data) {
           const trimmedBody = String(responseBody || "").trim();
           const shortBody = trimmedBody.length > 600 ? `${trimmedBody.slice(0, 600)}...` : trimmedBody;
           const detail = apiMessage || shortBody;
-          reject(new Error(detail ? `Brevo API error (${statusLabel}): ${detail}` : `Brevo API error (${statusLabel})`));
+          reject(new Error(detail ? `Resend API error (${statusLabel}): ${detail}` : `Resend API error (${statusLabel})`));
         });
       }
     );
@@ -545,8 +537,8 @@ async function sendReceiptViaBrevoApi(data) {
 }
 
 app.get("/api/health", (req, res) => {
-  const from = process.env.MAIL_FROM || "";
-  const brevoApiConfigured = Boolean(String(process.env.BREVO_API_KEY || "").trim());
+  const from = process.env.RESEND_FROM || process.env.MAIL_FROM || "";
+  const resendApiConfigured = Boolean(String(process.env.RESEND_API_KEY || "").trim());
   const commitSha = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || "";
   const commitRef = process.env.VERCEL_GIT_COMMIT_REF || "";
   const vercelEnv = process.env.VERCEL_ENV || "";
@@ -558,8 +550,8 @@ app.get("/api/health", (req, res) => {
       commitRef,
       commitSha: commitSha ? String(commitSha).slice(0, 12) : "",
     },
-    brevo: {
-      apiConfigured: brevoApiConfigured,
+    resend: {
+      apiConfigured: resendApiConfigured,
       from: from ? from.replace(/<([^>]+)>/, "<***@***>") : "",
     },
     storage: {
@@ -610,16 +602,16 @@ app.post("/api/send-receipt", async (req, res) => {
     });
   }
 
-  const brevoApiKey = String(process.env.BREVO_API_KEY || "").trim();
-  if (!brevoApiKey) {
+  const resendApiKey = String(process.env.RESEND_API_KEY || "").trim();
+  if (!resendApiKey) {
     return res.status(500).json({
       ok: false,
-      message: "Brevo is not configured. Set BREVO_API_KEY in Vercel Production environment variables, then redeploy.",
+      message: "Resend is not configured. Set RESEND_API_KEY in Vercel Production environment variables, then redeploy.",
     });
   }
 
   try {
-    await sendReceiptViaBrevoApi(data);
+    await sendReceiptViaResendApi(data);
 
     let historyWarning = "";
 
@@ -633,14 +625,12 @@ app.post("/api/send-receipt", async (req, res) => {
     res.json({
       ok: true,
       message: `Receipt sent to ${data.recipientEmail}.${historyWarning}`,
-      mode: "brevo-api",
+      mode: "resend-api",
     });
   } catch (error) {
-    const message = String(error?.message || "");
-
     res.status(500).json({
       ok: false,
-      message: error.message || "Brevo API rejected the send request.",
+      message: error.message || "Resend API rejected the send request.",
     });
   }
 });
