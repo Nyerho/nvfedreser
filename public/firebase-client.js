@@ -7,9 +7,16 @@ import {
   signOut,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-auth.js";
 import {
+  addDoc,
+  collection,
   doc,
+  getDocs,
   initializeFirestore,
   getDoc,
+  limit,
+  orderBy,
+  query,
+  serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -54,31 +61,31 @@ function watchAuthState(callback) {
 }
 
 async function fetchRecentReceipts() {
-  const endpoint = new URL("/api/receipts/recent", window.location.origin);
-  let lastError;
+  const receiptsQuery = query(collection(db, "receipts"), orderBy("createdAt", "desc"), limit(6));
+  const snapshot = await getDocs(receiptsQuery);
+  return snapshot.docs.map((receiptDoc) => ({ id: receiptDoc.id, ...receiptDoc.data() }));
+}
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      const response = await fetch(endpoint, {
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-      });
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || "Unable to load recent receipt history.");
-      }
-
-      return Array.isArray(result.receipts) ? result.receipts : [];
-    } catch (error) {
-      lastError = error;
-      if (attempt < 2) {
-        await new Promise((resolve) => window.setTimeout(resolve, 500 * (attempt + 1)));
-      }
-    }
-  }
-
-  throw lastError || new Error("Unable to load recent receipt history.");
+function saveReceiptHistory(data) {
+  return addDoc(collection(db, "receipts"), {
+    recipientEmail: data.recipientEmail,
+    recipientName: data.recipientName,
+    subject: data.subject,
+    organizationName: data.organizationName,
+    amount: Number(data.amount),
+    currency: data.currency,
+    transactionType: data.transactionType,
+    status: data.status,
+    reference: data.reference,
+    transactionDate: data.transactionDate,
+    senderName: data.senderName,
+    senderAccount: data.senderAccount,
+    note: data.note,
+    accentColor: data.accentColor,
+    savedByUid: data.savedByUid || auth.currentUser?.uid || "",
+    savedByEmail: data.savedByEmail || auth.currentUser?.email || "",
+    createdAt: serverTimestamp(),
+  });
 }
 
 async function getAuthorizedAdminRecord(user) {
@@ -109,5 +116,6 @@ export {
   getAuthorizedAdminRecord,
   loginAdmin,
   logoutAdmin,
+  saveReceiptHistory,
   watchAuthState,
 };

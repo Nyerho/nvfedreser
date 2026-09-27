@@ -4,6 +4,7 @@ import {
   getAuthorizedAdminRecord,
   loginAdmin,
   logoutAdmin,
+  saveReceiptHistory,
   watchAuthState,
 } from "/firebase-client.js";
 
@@ -104,6 +105,10 @@ function updatePreview() {
 function formatReceiptDate(value) {
   if (!value) {
     return "No date";
+  }
+
+  if (typeof value?.toDate === "function") {
+    return value.toDate().toLocaleString();
   }
 
   const parsed = new Date(value);
@@ -311,7 +316,15 @@ async function submitReceipt(event) {
       throw new Error(result.message || "Unable to send the receipt.");
     }
 
-    await loadReceiptHistory();
+    try {
+      await saveReceiptHistory(requestPayload);
+      await loadReceiptHistory();
+    } catch (historyError) {
+      console.error("Receipt sent, but durable history could not be updated:", historyError);
+      statusMessage.textContent = `${result.message || "Receipt sent successfully."} History could not be updated.`;
+      return;
+    }
+
     statusMessage.textContent = result.message || "Receipt sent successfully.";
   } catch (error) {
     statusMessage.textContent = error.message;
