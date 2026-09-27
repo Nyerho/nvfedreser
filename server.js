@@ -3,7 +3,6 @@ require("dotenv").config();
 const express = require("express");
 const fs = require("fs/promises");
 const https = require("https");
-const nodemailer = require("nodemailer");
 const path = require("path");
 const { randomUUID } = require("crypto");
 
@@ -194,19 +193,6 @@ function parseMailFrom(value) {
   }
 
   return { name: match[1].trim().replace(/^"|"$/g, ""), email: match[2].trim() };
-}
-
-function isGmailHost(host) {
-  const value = String(host || "").trim();
-  return /(^|\.)gmail\.com$/i.test(value) || /(^|\.)googlemail\.com$/i.test(value);
-}
-
-function normalizeSmtpPassword(password, host) {
-  const value = String(password || "").trim();
-
-  // Google app passwords are commonly copied as four groups separated by
-  // spaces. Gmail expects the same 16 characters without those separators.
-  return isGmailHost(host) ? value.replace(/[\s-]+/g, "") : value;
 }
 
 function renderReceiptEmail(data, options = {}) {
@@ -464,59 +450,13 @@ function renderTextReceipt(data) {
   ].join("\n");
 }
 
-function createTransporter() {
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_SECURE } = process.env;
-  const host = String(SMTP_HOST || "").trim();
-  const port = Number(SMTP_PORT);
-  const user = String(SMTP_USER || "").trim();
-
-  if (!host || !Number.isInteger(port) || port <= 0 || !user || !SMTP_PASS) {
-    return null;
-  }
-
-  return nodemailer.createTransport({
-    host,
-    port,
-    secure: SMTP_SECURE === "true" || port === 465,
-    requireTLS: port === 587,
-    auth: {
-      user,
-      pass: normalizeSmtpPassword(SMTP_PASS, host),
-    },
-  });
-}
-
-function createFallbackTransporter() {
-  const {
-    FALLBACK_SMTP_HOST,
-    FALLBACK_SMTP_PORT,
-    FALLBACK_SMTP_USER,
-    FALLBACK_SMTP_PASS,
-    FALLBACK_SMTP_SECURE,
-  } = process.env;
-
-  if (!FALLBACK_SMTP_HOST || !FALLBACK_SMTP_PORT || !FALLBACK_SMTP_USER || !FALLBACK_SMTP_PASS) {
-    return null;
-  }
-
-  return nodemailer.createTransport({
-    host: FALLBACK_SMTP_HOST,
-    port: Number(FALLBACK_SMTP_PORT),
-    secure: FALLBACK_SMTP_SECURE === "true",
-    auth: {
-      user: FALLBACK_SMTP_USER,
-      pass: FALLBACK_SMTP_PASS,
-    },
-  });
-}
-
 async function sendReceiptViaBrevoApi(data) {
   const apiKey = String(process.env.BREVO_API_KEY || "").trim();
   if (!apiKey) {
     throw new Error("BREVO_API_KEY is missing.");
   }
 
-  const senderValue = process.env.MAIL_FROM || process.env.SMTP_USER || "";
+  const senderValue = process.env.MAIL_FROM || "";
   const sender = parseMailFrom(senderValue);
   if (!sender.email) {
     throw new Error("MAIL_FROM is missing a valid sender email.");
@@ -604,62 +544,9 @@ async function sendReceiptViaBrevoApi(data) {
   });
 }
 
-async function sendReceiptViaSmtp(transporter, data) {
-  const replyToValue =
-    process.env.FALLBACK_MAIL_FROM ||
-    process.env.MAIL_FROM ||
-    process.env.FALLBACK_SMTP_USER ||
-    process.env.SMTP_USER ||
-    "";
-
-  await transporter.sendMail({
-    from:
-      process.env.FALLBACK_MAIL_FROM ||
-      process.env.MAIL_FROM ||
-      process.env.FALLBACK_SMTP_USER ||
-      process.env.SMTP_USER,
-    to: data.recipientEmail,
-    subject: data.subject,
-    replyTo: replyToValue,
-    headers: {
-      "Auto-Submitted": "auto-generated",
-      "X-Auto-Response-Suppress": "All",
-    },
-    html: renderReceiptEmail(data, { inlineLogo: true }),
-    text: renderTextReceipt(data),
-    attachments: [
-      {
-        filename: "nvlogo.png",
-        path: path.join(__dirname, "public", "nvlogo.png"),
-        cid: "nvlogo",
-      },
-    ],
-  });
-}
-
-function isSmtpAuthenticationError(error) {
-  const message = String(error?.message || "");
-  return (
-    /Invalid login/i.test(message) ||
-    /Username and Password not accepted/i.test(message) ||
-    /535[- ]5\.7\.8/i.test(message) ||
-    /EAUTH/i.test(String(error?.code || ""))
-  );
-}
-
 app.get("/api/health", (req, res) => {
-  const host = process.env.SMTP_HOST || "";
-  const port = process.env.SMTP_PORT || "";
-  const secure = process.env.SMTP_SECURE === "true";
-  const user = process.env.SMTP_USER || "";
   const from = process.env.MAIL_FROM || "";
   const brevoApiConfigured = Boolean(String(process.env.BREVO_API_KEY || "").trim());
-  const fallbackSmtpConfigured = Boolean(
-    process.env.FALLBACK_SMTP_HOST &&
-      process.env.FALLBACK_SMTP_PORT &&
-      process.env.FALLBACK_SMTP_USER &&
-      process.env.FALLBACK_SMTP_PASS
-  );
   const commitSha = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || "";
   const commitRef = process.env.VERCEL_GIT_COMMIT_REF || "";
   const vercelEnv = process.env.VERCEL_ENV || "";
@@ -671,19 +558,9 @@ app.get("/api/health", (req, res) => {
       commitRef,
       commitSha: commitSha ? String(commitSha).slice(0, 12) : "",
     },
-    smtp: {
-      configured: Boolean(host && port && user && process.env.SMTP_PASS),
-      host,
-      port,
-      secure,
-      user: maskEmail(user),
-      from: from ? from.replace(/<([^>]+)>/, "<***@***>") : "",
-    },
     brevo: {
       apiConfigured: brevoApiConfigured,
-    },
-    fallbackSmtp: {
-      configured: fallbackSmtpConfigured,
+      from: from ? from.replace(/<([^>]+)>/, "<***@***>") : "",
     },
     storage: {
       mode: process.env.VERCEL ? "volatile-memory" : "local-file",
@@ -734,57 +611,15 @@ app.post("/api/send-receipt", async (req, res) => {
   }
 
   const brevoApiKey = String(process.env.BREVO_API_KEY || "").trim();
-  const transporter = createTransporter();
-  const fallbackTransporter = createFallbackTransporter();
-
-  if (!brevoApiKey && !transporter && !fallbackTransporter) {
+  if (!brevoApiKey) {
     return res.status(500).json({
       ok: false,
-      message:
-        "No mail provider is configured. Set BREVO_API_KEY (Brevo API) or SMTP_* (SMTP) or FALLBACK_SMTP_* (backup SMTP) in Vercel environment variables, then redeploy.",
+      message: "Brevo is not configured. Set BREVO_API_KEY in Vercel Production environment variables, then redeploy.",
     });
   }
 
   try {
-    let sendMode = "";
-
-    if (brevoApiKey) {
-      try {
-        await sendReceiptViaBrevoApi(data);
-        sendMode = "brevo-api";
-      } catch (brevoError) {
-        const brevoMessage = String(brevoError?.message || "");
-        const isBrevoNotActivated =
-          /smtp account is not yet activated/i.test(brevoMessage) ||
-          /contact@brevo\.com/i.test(brevoMessage) ||
-          /contact@sendinblue\.com/i.test(brevoMessage) ||
-          /\bHTTP 403\b/i.test(brevoMessage);
-
-        if (!isBrevoNotActivated || !fallbackTransporter) {
-          throw brevoError;
-        }
-
-        await sendReceiptViaSmtp(fallbackTransporter, data);
-        sendMode = "fallback-smtp";
-      }
-    } else if (transporter) {
-      try {
-        await sendReceiptViaSmtp(transporter, data);
-        sendMode = "smtp";
-      } catch (smtpError) {
-        // A bad primary Gmail password must not prevent delivery when an
-        // independently configured backup provider is available.
-        if (!fallbackTransporter || !isSmtpAuthenticationError(smtpError)) {
-          throw smtpError;
-        }
-
-        await sendReceiptViaSmtp(fallbackTransporter, data);
-        sendMode = "fallback-smtp";
-      }
-    } else {
-      await sendReceiptViaSmtp(fallbackTransporter, data);
-      sendMode = "fallback-smtp";
-    }
+    await sendReceiptViaBrevoApi(data);
 
     let historyWarning = "";
 
@@ -798,25 +633,14 @@ app.post("/api/send-receipt", async (req, res) => {
     res.json({
       ok: true,
       message: `Receipt sent to ${data.recipientEmail}.${historyWarning}`,
-      mode: sendMode,
+      mode: "brevo-api",
     });
   } catch (error) {
     const message = String(error?.message || "");
-    const isGmailAuthError = isSmtpAuthenticationError(error) && isGmailHost(process.env.SMTP_HOST);
-    const isBrevoActivationError =
-      /not yet activated/i.test(message) ||
-      /contact@sendinblue\.com/i.test(message) ||
-      /502 5\.7\.0/i.test(message);
 
     res.status(500).json({
       ok: false,
-      message: brevoApiKey
-        ? error.message || "Brevo API rejected the send request."
-        : isGmailAuthError
-          ? "Gmail rejected the SMTP login. Use the exact Gmail address that generated the app password, remove spaces or dashes from SMTP_PASS, and update the same values in Vercel env vars before redeploying."
-          : isBrevoActivationError
-            ? "Brevo rejected SMTP because your account is not activated yet (502 5.7.0). In Brevo: complete account verification, verify your sender/domain (SPF/DKIM), then request SMTP activation from Support. After activation, retry."
-            : error.message || "Unable to send the receipt email.",
+      message: error.message || "Brevo API rejected the send request.",
     });
   }
 });
