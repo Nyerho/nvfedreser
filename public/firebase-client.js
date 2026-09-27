@@ -8,7 +8,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-auth.js";
 import {
   doc,
-  getFirestore,
+  initializeFirestore,
   getDoc,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 
@@ -24,7 +24,12 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app);
+// Some browsers, extensions, and network proxies block Firestore's default
+// WebChannel connection and report the misleading "client is offline" error.
+// Long polling uses ordinary HTTPS requests and keeps the admin check usable.
+const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+});
 
 analyticsSupported()
   .then((supported) => {
