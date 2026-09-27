@@ -196,6 +196,19 @@ function parseMailFrom(value) {
   return { name: match[1].trim().replace(/^"|"$/g, ""), email: match[2].trim() };
 }
 
+function isGmailHost(host) {
+  const value = String(host || "").trim();
+  return /(^|\.)gmail\.com$/i.test(value) || /(^|\.)googlemail\.com$/i.test(value);
+}
+
+function normalizeSmtpPassword(password, host) {
+  const value = String(password || "").trim();
+
+  // Google app passwords are commonly copied as four groups separated by
+  // spaces. Gmail expects the same 16 characters without those separators.
+  return isGmailHost(host) ? value.replace(/[\s-]+/g, "") : value;
+}
+
 function renderReceiptEmail(data, options = {}) {
   const receiptAmount = formatAmount(data.amount, data.currency);
   const accent = data.accentColor || "#7c9cff";
@@ -453,23 +466,22 @@ function renderTextReceipt(data) {
 
 function createTransporter() {
   const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_SECURE } = process.env;
+  const host = String(SMTP_HOST || "").trim();
+  const port = Number(SMTP_PORT);
+  const user = String(SMTP_USER || "").trim();
 
-  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
+  if (!host || !Number.isInteger(port) || port <= 0 || !user || !SMTP_PASS) {
     return null;
   }
 
-  const normalizedPass =
-    /gmail\.com$/i.test(SMTP_HOST) || /googlemail\.com$/i.test(SMTP_HOST)
-      ? SMTP_PASS.replace(/[\s-]+/g, "")
-      : SMTP_PASS;
-
   return nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: Number(SMTP_PORT),
-    secure: SMTP_SECURE === "true",
+    host,
+    port,
+    secure: SMTP_SECURE === "true" || port === 465,
+    requireTLS: port === 587,
     auth: {
-      user: SMTP_USER,
-      pass: normalizedPass,
+      user,
+      pass: normalizeSmtpPassword(SMTP_PASS, host),
     },
   });
 }
@@ -625,6 +637,16 @@ async function sendReceiptViaSmtp(transporter, data) {
   });
 }
 
+function isSmtpAuthenticationError(error) {
+  const message = String(error?.message || "");
+  return (
+    /Invalid login/i.test(message) ||
+    /Username and Password not accepted/i.test(message) ||
+    /535[- ]5\.7\.8/i.test(message) ||
+    /EAUTH/i.test(String(error?.code || ""))
+  );
+}
+
 app.get("/api/health", (req, res) => {
   const host = process.env.SMTP_HOST || "";
   const port = process.env.SMTP_PORT || "";
@@ -746,8 +768,19 @@ app.post("/api/send-receipt", async (req, res) => {
         sendMode = "fallback-smtp";
       }
     } else if (transporter) {
-      await sendReceiptViaSmtp(transporter, data);
-      sendMode = "smtp";
+      try {
+        await sendReceiptViaSmtp(transporter, data);
+        sendMode = "smtp";
+      } catch (smtpError) {
+        // A bad primary Gmail password must not prevent delivery when an
+        // independently configured backup provider is available.
+        if (!fallbackTransporter || !isSmtpAuthenticationError(smtpError)) {
+          throw smtpError;
+        }
+
+        await sendReceiptViaSmtp(fallbackTransporter, data);
+        sendMode = "fallback-smtp";
+      }
     } else {
       await sendReceiptViaSmtp(fallbackTransporter, data);
       sendMode = "fallback-smtp";
@@ -769,10 +802,7 @@ app.post("/api/send-receipt", async (req, res) => {
     });
   } catch (error) {
     const message = String(error?.message || "");
-    const isGmailAuthError =
-      /Invalid login/i.test(message) ||
-      /535-5\.7\.8/i.test(message) ||
-      /Username and Password not accepted/i.test(message);
+    const isGmailAuthError = isSmtpAuthenticationError(error) && isGmailHost(process.env.SMTP_HOST);
     const isBrevoActivationError =
       /not yet activated/i.test(message) ||
       /contact@sendinblue\.com/i.test(message) ||
